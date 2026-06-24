@@ -1,0 +1,395 @@
+echo "# tank.game.2" >> README.md
+git init
+git add README.md
+git commit -m "first commit"
+git branch -M main
+git remote add origin https://github.com/NickFuture2012/tank.game.2.git
+git push -u origin main
+
+
+
+// =====================================================
+// 2 PLAYER TANK GAME — SHARED CAMERA WITH AUTO-ZOOM
+// WITH HEALTH BAR + RESPAWN + SPAWN CROSSES + HEALING POINTS
+// =====================================================
+
+Tank p1, p2;
+ArrayList<Bullet> bullets;
+ArrayList<Obstacle> obstacles;
+ArrayList<HealingPoint> heals;
+
+void setup() {
+  size(2000, 700);
+
+  p1 = new Tank(-200, 0, color(0,180,0));
+  p2 = new Tank(200, 0, color(0,120,255));
+
+  bullets = new ArrayList<Bullet>();
+  obstacles = new ArrayList<Obstacle>();
+  heals = new ArrayList<HealingPoint>();
+
+  generateObstacles();
+  generateHealingPoints();
+}
+
+void draw() {
+  background(60, 200, 60); // grass
+
+  // UPDATE PLAYERS
+  p1.update();
+  p2.update();
+
+  // UPDATE BULLETS
+  for (int i = bullets.size()-1; i >= 0; i--) {
+    bullets.get(i).update();
+    if (bullets.get(i).isDead()) bullets.remove(i);
+  }
+
+  // =====================================================
+  // BULLET–TANK COLLISION (HEALTH DAMAGE)
+  // =====================================================
+  for (int i = bullets.size()-1; i >= 0; i--) {
+    Bullet b = bullets.get(i);
+
+    // Hit Player 1
+    if (dist(b.x, b.y, p1.x, p1.y) < p1.radius) {
+      p1.health -= 10;
+      bullets.remove(i);
+      continue;
+    }
+
+    // Hit Player 2
+    if (dist(b.x, b.y, p2.x, p2.y) < p2.radius) {
+      p2.health -= 10;
+      bullets.remove(i);
+      continue;
+    }
+  }
+
+  // =====================================================
+  // RESPAWN CHECK
+  // =====================================================
+  if (p1.health <= 0) p1.respawn();
+  if (p2.health <= 0) p2.respawn();
+
+  // =====================================================
+  // SHARED CAMERA (CENTER + ZOOM)
+  // =====================================================
+
+  float camX = (p1.x + p2.x) / 2.0;
+  float camY = (p1.y + p2.y) / 2.0;
+
+  float distPlayers = dist(p1.x, p1.y, p2.x, p2.y);
+
+  float zoom = constrain(350 / distPlayers, 0.35, 1.0);
+
+  pushMatrix();
+  scale(zoom);
+  translate(width/2/zoom - camX, height/2/zoom - camY);
+
+  // =====================================================
+  // DRAW WORLD
+  // =====================================================
+
+  // ⭐ DRAW SPAWN CROSSES
+  drawSpawnCross(p1.spawnX, p1.spawnY);
+  drawSpawnCross(p2.spawnX, p2.spawnY);
+
+  // Obstacles (view culling)
+  for (Obstacle o : obstacles) {
+    if (dist(o.x, o.y, camX, camY) < 3000 / zoom) {
+      o.display();
+    }
+  }
+
+  // Healing points (view culling)
+  for (HealingPoint h : heals) {
+    if (dist(h.x, h.y, camX, camY) < 3000 / zoom) {
+      h.display();
+    }
+  }
+
+  // Tanks
+  p1.display();
+  p2.display();
+
+  // Bullets
+  for (Bullet b : bullets) b.display();
+
+  popMatrix();
+}
+
+// =====================================================
+// DRAW SPAWN CROSS FUNCTION
+// =====================================================
+
+void drawSpawnCross(float x, float y) {
+  stroke(255, 0, 0);
+  strokeWeight(10);
+  line(x - 50, y - 50, x + 50, y + 50);
+  line(x - 50, y + 50, x + 50, y - 50);
+  strokeWeight(1);
+}
+
+// =====================================================
+// CONTROLS
+// =====================================================
+
+void keyPressed() {
+  // PLAYER 1
+  if (key == 'd' || key == 'D') { p1.setDirection(0);   p1.moving = true; }
+  if (key == 's' || key == 'S') { p1.setDirection(90);  p1.moving = true; }
+  if (key == 'a' || key == 'A') { p1.setDirection(180); p1.moving = true; }
+  if (key == 'w' || key == 'W') { p1.setDirection(270); p1.moving = true; }
+  if (key == ' ') p1.shoot();
+
+  // PLAYER 2
+  if (keyCode == RIGHT) { p2.setDirection(0);   p2.moving = true; }
+  if (keyCode == DOWN)  { p2.setDirection(90);  p2.moving = true; }
+  if (keyCode == LEFT)  { p2.setDirection(180); p2.moving = true; }
+  if (keyCode == UP)    { p2.setDirection(270); p2.moving = true; }
+
+  if (keyCode == CONTROL) p2.shoot();
+}
+
+void keyReleased() {
+  if ("wasdWASD".indexOf(key) != -1) p1.moving = false;
+  if (keyCode==UP||keyCode==LEFT||keyCode==DOWN||keyCode==RIGHT) p2.moving = false;
+}
+
+// =====================================================
+// TANK CLASS
+// =====================================================
+
+class Tank {
+  float x, y;
+  float spawnX, spawnY;
+  float speed = 5;
+  float angle = 0;
+  boolean moving = false;
+  float radius = 40;
+  color bodyColor;
+
+  int maxHealth = 100;
+  int health = 100;
+
+  Tank(float X, float Y, color c) {
+    x = X;
+    y = Y;
+    spawnX = X;
+    spawnY = Y;
+    bodyColor = c;
+  }
+
+  void respawn() {
+    x = spawnX;
+    y = spawnY;
+    angle = 0;
+    health = maxHealth;
+
+    // Remove bullets near spawn
+    for (int i = bullets.size()-1; i >= 0; i--) {
+      if (dist(bullets.get(i).x, bullets.get(i).y, x, y) < 150)
+        bullets.remove(i);
+    }
+  }
+
+  void setDirection(float a) {
+    angle = a;
+  }
+
+  void update() {
+    if (moving) {
+      float rad = radians(angle);
+      float newX = x + cos(rad) * speed;
+      float newY = y + sin(rad) * speed;
+
+      if (!collides(newX, newY)) {
+        x = newX;
+        y = newY;
+      }
+    }
+
+    // =====================================================
+    // HEALING CHECK + REMOVE HEAL POINT WHEN FULL
+    // =====================================================
+    for (int i = heals.size()-1; i >= 0; i--) {
+      HealingPoint h = heals.get(i);
+
+      if (dist(x, y, h.x, h.y) < radius + h.radius) {
+        health = min(maxHealth, health + 1);
+
+        if (health >= maxHealth) {
+          heals.remove(i);   // ⭐ disappears after full heal
+        }
+      }
+    }
+  }
+
+  boolean collides(float nx, float ny) {
+    for (Obstacle o : obstacles) {
+      if (dist(nx, ny, o.x, o.y) < radius + o.radius) return true;
+    }
+    return false;
+  }
+
+  void display() {
+    pushMatrix();
+    translate(x, y);
+    rotate(radians(angle));
+
+    // BODY
+    fill(bodyColor);
+    rectMode(CENTER);
+    rect(0, 0, 80, 50);
+
+    // HEALTH BAR
+    float backX = -40;
+    float backY = -20;
+
+    float barWidth = 60;
+    float barHeight = 10;
+
+    float healthPercent = max(0, health) / float(maxHealth);
+    float currentWidth = barWidth * healthPercent;
+
+    fill(50);
+    rect(backX, backY, barWidth, barHeight);
+
+    if (healthPercent > 0.6) fill(0,255,0);
+    else if (healthPercent > 0.3) fill(255,255,0);
+    else fill(255,0,0);
+
+    rect(backX - (barWidth-currentWidth)/2, backY, currentWidth, barHeight);
+
+    // TURRET
+    fill(0);
+    rect(20, 0, 50, 30);
+
+    // NOZZLE
+    fill(60);
+    rect(55, 0, 50, 10);
+
+    popMatrix();
+  }
+
+  void shoot() {
+    float rad = radians(angle);
+    float sx = x + cos(rad) * 80;
+    float sy = y + sin(rad) * 80;
+    bullets.add(new Bullet(sx, sy, rad));
+  }
+}
+
+// =====================================================
+// BULLET
+// =====================================================
+
+class Bullet {
+  float x, y;
+  float angle;
+  float speed = 15;
+
+  Bullet(float X, float Y, float a) {
+    x = X;
+    y = Y;
+    angle = a;
+  }
+
+  void update() {
+    x += cos(angle) * speed;
+    y += sin(angle) * speed;
+  }
+
+  void display() {
+    fill(255, 255, 0);
+    ellipse(x, y, 10, 5);
+  }
+
+  boolean isDead() {
+    return x < -50000 || x > 50000 || y < -50000 || y > 50000;
+  }
+}
+
+// =====================================================
+// OBSTACLE
+// =====================================================
+
+class Obstacle {
+  float x, y;
+  int type;
+  float radius;
+
+  Obstacle(float X, float Y, int t) {
+    x = X;
+    y = Y;
+    type = t;
+
+    if (t == 0) radius = 30;
+    if (t == 1) radius = 35;
+    if (t == 2) radius = 50;
+    if (t == 3) radius = 40;
+  }
+
+  void display() {
+    pushMatrix();
+    translate(x, y);
+
+    if (type == 0) { fill(120); ellipse(0, 0, 60, 40); }
+    if (type == 1) { fill(120,70,20); rect(-5,10,10,40); fill(0,150,0); ellipse(0,-10,60,60); }
+    if (type == 2) { fill(120,70,20); rect(0,0,100,20); }
+    if (type == 3) { fill(30); ellipse(0,0,80,50); }
+
+    popMatrix();
+  }
+}
+
+// =====================================================
+// HEALING POINT
+// =====================================================
+
+class HealingPoint {
+  float x, y;
+  float radius = 40;
+
+  HealingPoint(float X, float Y) {
+    x = X;
+    y = Y;
+  }
+
+  void display() {
+    pushMatrix();
+    translate(x, y);
+
+    noStroke();
+    fill(0, 255, 0, 180);
+    ellipse(0, 0, 80, 80);
+
+    stroke(255);
+    strokeWeight(6);
+    line(-20, 0, 20, 0);
+    line(0, -20, 0, 20);
+
+    popMatrix();
+  }
+}
+
+// =====================================================
+// GENERATE OBSTACLES
+// =====================================================
+
+void generateObstacles() {
+  for (int i = 0; i < 400; i++) {
+    obstacles.add(new Obstacle(random(-5000, 5000), random(-5000, 5000), int(random(4))));
+  }
+}
+
+// =====================================================
+// GENERATE HEALING POINTS
+// =====================================================
+
+void generateHealingPoints() {
+  for (int i = 0; i < 40; i++) {
+    heals.add(new HealingPoint(random(-5000, 5000), random(-5000, 5000)));
+  }
+}
